@@ -1,6 +1,8 @@
 package com.myproject.search_engine.crawler.fetcher.parser;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamException;
@@ -15,9 +17,10 @@ import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 
 @Slf4j
+@Service
 public class SitemapParser {
     public boolean isXMLSitemap(HttpResponse<String> response) {
-        if (response == null || response.body() == null || response.body().isBlank()) {
+        if (!isValid(response)) {
             return false;
         }
 
@@ -31,6 +34,11 @@ public class SitemapParser {
             return false;
         }
 
+        return "urlset".equals(getLocalNameXML(response))
+                || "sitemapindex".equals(getLocalNameXML(response));
+    }
+
+    public String getLocalNameXML(HttpResponse<String> response) {
         XMLInputFactory factory =  XMLInputFactory.newInstance();
 
         try {
@@ -44,36 +52,54 @@ public class SitemapParser {
                 int event = reader.next();
 
                 if (event == XMLStreamReader.START_ELEMENT) {
-                    String localName = reader.getLocalName();
-                    return "urlset".equals(localName) || "sitemapindex".equals(localName);
+                    return reader.getLocalName();
                 }
             }
-            return false;
+
+            return null;
         } catch (XMLStreamException e) {
             log.error("Failed to parse XML: {}", e.getMessage());
-            return false;
+            return null;
         }
     }
 
-    public HttpResponse<String> getSitemapContent(URI addressURL) {
+    public boolean isSitemapIndex(HttpResponse<String> response) {
+        if (!isValid(response)) {
+            return false;
+        }
+
+        return isXMLSitemap(response) && "sitemapindex".equals(getLocalNameXML(response));
+    }
+
+    public boolean isUrlSet(HttpResponse<String> response) {
+        if (!isValid(response)) {
+            return false;
+        }
+
+        return isXMLSitemap(response) && "urlset".equals(getLocalNameXML(response));
+    }
+
+    public boolean isValid(HttpResponse<String> response) {
+        return response != null && response.body() != null && !response.body().isBlank();
+    }
+
+    public HttpResponse<String> getSitemapContent(String addressURL) {
         try {
             HttpClient client = HttpClient.newBuilder()
                     .followRedirects(HttpClient.Redirect.ALWAYS)
                     .build();
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(addressURL)
+                    .uri(URI.create(addressURL))
                     .timeout(Duration.of(10, ChronoUnit.SECONDS))
                     .build();
 
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
-            System.out.println(response.body());
-
             return response;
         } catch (IOException | InterruptedException e) {
             log.error("Response error: {}", e.getMessage());
-            throw new RuntimeException(e);
+            return null;
         }
     }
 }
