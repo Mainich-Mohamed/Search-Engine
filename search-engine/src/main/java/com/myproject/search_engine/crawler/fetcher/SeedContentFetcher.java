@@ -1,9 +1,11 @@
 package com.myproject.search_engine.crawler.fetcher;
 
+import com.myproject.search_engine.crawler.CrawlerQueueManager;
 import com.myproject.search_engine.crawler.fetcher.parser.SitemapParser;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
+import redis.clients.jedis.Jedis;
 
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamConstants;
@@ -20,13 +22,16 @@ import java.util.*;
 @Service
 public class SeedContentFetcher {
     private final static String SEEDS_CONF_PATH = "conf/seeds.yml";
-    private final SitemapParser sitemapParser;
 
-    public SeedContentFetcher(SitemapParser sitemapParser) {
+    private final SitemapParser sitemapParser;
+    private final CrawlerQueueManager crawlerQueueManager;
+
+    public SeedContentFetcher(SitemapParser sitemapParser, CrawlerQueueManager crawlerQueueManager) {
         this.sitemapParser = sitemapParser;
+        this.crawlerQueueManager = crawlerQueueManager;
     }
 
-    public List<String> fetchAllXMLSitemaps(String seedsOrigin) {
+    public void fetchAllXMLSitemaps(String seedsOrigin) {
         List<String> seeds = getSeedsFromYAML(seedsOrigin);
 
         for (String seed : seeds) {
@@ -44,6 +49,12 @@ public class SeedContentFetcher {
             if (sitemapParser.isSitemapIndex(response)) {
                 List<String> sitemaps = extractChildSitemaps(stream);
 
+                try (Jedis redisConnection = crawlerQueueManager.connectToRedisServer()) {
+                    // Cache the sitemap urls in the Memory
+                    crawlerQueueManager.enqueueUniqueSitemapUrls(redisConnection, sitemaps);
+                } catch (Exception e) {
+                    log.error("Failed to enqueue sitemaps in Redis: {}", e.getMessage());
+                }
             } else if (sitemapParser.isUrlSet(response)) {
                 // Fetch Sitemap
             }
@@ -81,7 +92,7 @@ public class SeedContentFetcher {
                         break;
                     case XMLStreamConstants.CHARACTERS:
                         if (inLoc) {
-                            String url = reader.getLocalName().toLowerCase().trim();
+                            String url = reader.getText().trim();
                             if (!url.isEmpty()) {
                                 sitemaps.add(url);
                             }
@@ -117,7 +128,7 @@ public class SeedContentFetcher {
 
             return Optional.ofNullable(map)
                     .map(m -> (Map<String, Object>) m.get("crawler"))
-                    .map(m -> (Map<String, Object>) m.get("seed"))
+                    .map(m -> (Map<String, Object>) m.get ("seed"))
                     .map(m -> (Map<String, Object>) m.get("url"))
                     .map(m -> (List<String>) m.get(seedsOrigin))
                     .orElse(Collections.emptyList());

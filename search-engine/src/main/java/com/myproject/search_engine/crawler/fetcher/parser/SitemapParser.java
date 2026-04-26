@@ -34,8 +34,8 @@ public class SitemapParser {
             return false;
         }
 
-        return "urlset".equals(getLocalNameXML(response))
-                || "sitemapindex".equals(getLocalNameXML(response));
+        String rootElement = getLocalNameXML(response);
+        return "urlset".equals(rootElement) || "sitemapindex".equals(rootElement);
     }
 
     public String getLocalNameXML(HttpResponse<String> response) {
