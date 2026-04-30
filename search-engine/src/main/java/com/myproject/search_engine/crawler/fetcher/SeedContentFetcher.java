@@ -132,7 +132,7 @@ public class SeedContentFetcher {
                     .orElse(Collections.emptyList());
         } catch (IOException e) {
             log.error("Failed to read the YAML file: {}",e.getMessage());
-            return Collections.emptyList();
+            return Collections.emptyList(); 
         }
     }
 }
