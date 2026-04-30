@@ -1,7 +1,6 @@
 package com.myproject.search_engine.crawler.fetcher.parser;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 
 import javax.xml.stream.XMLInputFactory;
@@ -19,8 +18,9 @@ import java.time.temporal.ChronoUnit;
 @Slf4j
 @Service
 public class SitemapParser {
+    // Check if the document is a sitemap of sitemaps
     public boolean isXMLSitemap(HttpResponse<String> response) {
-        if (!isValid(response)) {
+        if (isValidResponse(response)) {
             return false;
         }
 
@@ -38,6 +38,7 @@ public class SitemapParser {
         return "urlset".equals(rootElement) || "sitemapindex".equals(rootElement);
     }
 
+    // used to get the first XML tag name
     public String getLocalNameXML(HttpResponse<String> response) {
         XMLInputFactory factory =  XMLInputFactory.newInstance();
 
@@ -63,8 +64,9 @@ public class SitemapParser {
         }
     }
 
+
     public boolean isSitemapIndex(HttpResponse<String> response) {
-        if (!isValid(response)) {
+        if (isValidResponse(response)) {
             return false;
         }
 
@@ -72,15 +74,15 @@ public class SitemapParser {
     }
 
     public boolean isUrlSet(HttpResponse<String> response) {
-        if (!isValid(response)) {
+        if (isValidResponse(response)) {
             return false;
         }
 
         return isXMLSitemap(response) && "urlset".equals(getLocalNameXML(response));
     }
 
-    public boolean isValid(HttpResponse<String> response) {
-        return response != null && response.body() != null && !response.body().isBlank();
+    public boolean isValidResponse(HttpResponse<String> response) {
+        return response == null || response.body() == null || response.body().isBlank();
     }
 
     public HttpResponse<String> getSitemapContent(String addressURL) {

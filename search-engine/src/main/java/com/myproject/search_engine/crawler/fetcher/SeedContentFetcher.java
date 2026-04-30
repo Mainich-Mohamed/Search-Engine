@@ -2,6 +2,7 @@ package com.myproject.search_engine.crawler.fetcher;
 
 import com.myproject.search_engine.crawler.CrawlerQueueManager;
 import com.myproject.search_engine.crawler.fetcher.parser.SitemapParser;
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
@@ -19,17 +20,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 @Slf4j
+@AllArgsConstructor
 @Service
 public class SeedContentFetcher {
     private final static String SEEDS_CONF_PATH = "conf/seeds.yml";
 
     private final SitemapParser sitemapParser;
     private final CrawlerQueueManager crawlerQueueManager;
-
-    public SeedContentFetcher(SitemapParser sitemapParser, CrawlerQueueManager crawlerQueueManager) {
-        this.sitemapParser = sitemapParser;
-        this.crawlerQueueManager = crawlerQueueManager;
-    }
 
     public void fetchAllXMLSitemaps(String seedsOrigin) {
         List<String> seeds = getSeedsFromYAML(seedsOrigin);
@@ -40,13 +37,13 @@ public class SeedContentFetcher {
     }
 
     public List<String> fetchXMLSitemap(String seed) {
-        HttpResponse<String> response = sitemapParser.getSitemapContent(seed);
+        HttpResponse<String> sitemapContent = sitemapParser.getSitemapContent(seed);
 
-        String xmlBody = response.body();
+        String xmlBody = sitemapContent.body();
         InputStream stream = new ByteArrayInputStream(xmlBody.getBytes(StandardCharsets.UTF_8));
 
-        if (sitemapParser.isXMLSitemap(response)) {
-            if (sitemapParser.isSitemapIndex(response)) {
+        if (sitemapParser.isXMLSitemap(sitemapContent)) {
+            if (sitemapParser.isSitemapIndex(sitemapContent)) {
                 List<String> sitemaps = extractChildSitemaps(stream);
 
                 try (Jedis redisConnection = crawlerQueueManager.connectToRedisServer()) {
@@ -55,7 +52,7 @@ public class SeedContentFetcher {
                 } catch (Exception e) {
                     log.error("Failed to enqueue sitemaps in Redis: {}", e.getMessage());
                 }
-            } else if (sitemapParser.isUrlSet(response)) {
+            } else if (sitemapParser.isUrlSet(sitemapContent)) {
                 // Fetch Sitemap
             }
         }
@@ -63,6 +60,7 @@ public class SeedContentFetcher {
         return Collections.emptyList();
     }
 
+    // Allows us to parse the sitemap's urls from the sitemap index
     public List<String> extractChildSitemaps(InputStream sitemapStream) {
         List<String> sitemaps = new ArrayList<>();
 
