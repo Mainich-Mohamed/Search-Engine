@@ -2,6 +2,7 @@ package com.myproject.search_engine.crawler.fetcher;
 
 import com.myproject.search_engine.crawler.CrawlerQueueManager;
 import com.myproject.search_engine.crawler.fetcher.parser.SitemapParser;
+import com.myproject.search_engine.crawler.fetcher.records.SitemapEntry;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -48,7 +49,7 @@ public class SeedContentFetcher {
 
         if (sitemapParser.isXMLSitemap(sitemapContent)) {
             if (sitemapParser.isSitemapIndex(sitemapContent)) {
-                List<String> sitemapsUrls = extractChildSitemaps(stream);
+                List<SitemapEntry> sitemapsUrls = extractChildSitemaps(stream);
 
                 try (Jedis redisConnection = crawlerQueueManager.connectToRedisServer()) {
                     // Cache the sitemap urls in the Memory
@@ -66,8 +67,8 @@ public class SeedContentFetcher {
     }
 
     // Allows us to parse the sitemap's urls from the sitemap index
-    public List<String> extractChildSitemaps(InputStream sitemapStream) {
-        List<String> sitemaps = new ArrayList<>();
+    public List<SitemapEntry> extractChildSitemaps(InputStream sitemapStream) {
+        List<SitemapEntry> sitemaps = new ArrayList<>();
 
         try {
             XMLInputFactory xmlInputFactory = XMLInputFactory.newInstance();
@@ -80,7 +81,10 @@ public class SeedContentFetcher {
 
             boolean inSitemap = false;
             boolean inLoc = false;
+            boolean inLastMod = false;
+
             StringBuilder currentUrl = new StringBuilder();
+            StringBuilder currentLastMod = new StringBuilder();
 
             while (reader.hasNext()) {
                 int event = reader.next();
@@ -90,27 +94,35 @@ public class SeedContentFetcher {
                         String startName = reader.getLocalName();
                         if ("sitemap".equals(startName)) {
                             inSitemap = true;
+                            currentUrl.setLength(0);
+                            currentLastMod.setLength(0);
                         } else if ("loc".equals(startName)) {
                             inLoc = true;
-                            currentUrl.setLength(0);
+                        } else if ("lastmod".equals(startName)) {
+                            inLastMod = true;
                         }
                         break;
                     case XMLStreamConstants.CHARACTERS:
                         if (inLoc) {
                             currentUrl.append(reader.getText());
+                        } else if (inLastMod) {
+                            currentLastMod.append(reader.getText());
                         }
                         break;
                     case XMLStreamConstants.END_ELEMENT:
                         String endName = reader.getLocalName();
                         if ("sitemap".equals(endName)) {
                             inSitemap = false;
+                            String parsedUrl = currentUrl.toString().trim();
+                            String parsedLastMod = currentLastMod.toString().trim();
+
+                            if (!parsedUrl.isEmpty()) {
+                                sitemaps.add(new SitemapEntry(parsedUrl, parsedLastMod));
+                            }
                         } else if ("loc".equals(endName)) {
                             inLoc = false;
-                            String parsedUrl = currentUrl.toString().trim();
-                            if (!parsedUrl.isEmpty()) {
-                                sitemaps.add(parsedUrl);
-                            }
-                            currentUrl.setLength(0);
+                        } else if ("lastmod".equals(endName)) {
+                            inLastMod = false;
                         }
                         break;
                 }

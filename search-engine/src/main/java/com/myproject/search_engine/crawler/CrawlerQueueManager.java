@@ -1,35 +1,47 @@
 package com.myproject.search_engine.crawler;
 
+import com.myproject.search_engine.crawler.fetcher.records.SitemapEntry;
+import com.myproject.search_engine.crawler.utils.Utils;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
 
+import java.io.IOException;
 import java.util.List;
 
 @Slf4j
 @Service
 public class CrawlerQueueManager {
-    private static final String SEEN_SITEMAP = "crawler:seen";
+    private static final String SITEMAP_LASTMOD_HASH = "crawler:sitemap:lastmod";
     public static final String SITEMAP_QUEUE = "crawler:queue";
-    public static final String REDIS_HOST = "localhost";
-    public static final int REDIS_PORT = 6379;
 
-    public Jedis connectToRedisServer() {
-        return new Jedis(REDIS_HOST, REDIS_PORT);
+    @Value("${spring.redis.host:localhost}")
+    private String redisHost;
+
+    @Value("${spring.redis.port:6379}")
+    private int redisPort;
+
+    private final Utils utils;
+
+    public CrawlerQueueManager(Utils utils) {
+        this.utils = utils;
     }
 
-    public void enqueueUniqueSitemapUrls(Jedis redis, List<String> sitemapsUrls) {
-        for (String sitemapUrl : sitemapsUrls) {
-            long isNew = redis.sadd(SEEN_SITEMAP, sitemapUrl);
+    public Jedis connectToRedisServer() {
+        return new Jedis(redisHost, redisPort);
+    }
 
-            if (isNew == 1) {
-                log.info("Saved new URL to Redis set [{}]: {}", SEEN_SITEMAP, sitemapUrl);
+    public void enqueueUniqueSitemapUrls(Jedis redis, List<SitemapEntry> sitemapsEntries) throws IOException {
+        for (SitemapEntry sitemapEntry : sitemapsEntries) {
+            String storedLastMod = redis.hget(SITEMAP_LASTMOD_HASH, sitemapEntry.url());
+            String currentLastMod = sitemapEntry.lastModified();
 
-                redis.lpush(SITEMAP_QUEUE, sitemapUrl);
+            if (storedLastMod == null || !storedLastMod.equals(currentLastMod)) {
+                redis.hset(SITEMAP_LASTMOD_HASH, sitemapEntry.url(), currentLastMod != null ? currentLastMod : "");
 
-                log.info("Saved new URL to Redis list [{}]: {}", SITEMAP_QUEUE, sitemapUrl);
-            } else {
-                log.info("URL already exists in cache, skipping: {}", sitemapUrl);
+                byte[] serializedSitemapEntry = utils.recordToBytes(sitemapEntry);
+                redis.lpush(SITEMAP_QUEUE.getBytes(), serializedSitemapEntry);
             }
         }
     }
