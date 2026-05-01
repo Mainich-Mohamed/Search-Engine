@@ -20,13 +20,17 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 @Slf4j
-@AllArgsConstructor
 @Service
 public class SeedContentFetcher {
-    private final static String SEEDS_CONF_PATH = "conf/seeds.yml";
+    private final static String SEEDS_CONF_PATH = "crawler/seeds.yml";
 
     private final SitemapParser sitemapParser;
     private final CrawlerQueueManager crawlerQueueManager;
+
+    public SeedContentFetcher(SitemapParser sitemapParser, CrawlerQueueManager crawlerQueueManager) {
+        this.sitemapParser = sitemapParser;
+        this.crawlerQueueManager = crawlerQueueManager;
+    }
 
     public void fetchAllXMLSitemaps(String seedsOrigin) {
         List<String> seeds = getSeedsFromYAML(seedsOrigin);
@@ -44,16 +48,17 @@ public class SeedContentFetcher {
 
         if (sitemapParser.isXMLSitemap(sitemapContent)) {
             if (sitemapParser.isSitemapIndex(sitemapContent)) {
-                List<String> sitemaps = extractChildSitemaps(stream);
+                List<String> sitemapsUrls = extractChildSitemaps(stream);
 
                 try (Jedis redisConnection = crawlerQueueManager.connectToRedisServer()) {
                     // Cache the sitemap urls in the Memory
-                    crawlerQueueManager.enqueueUniqueSitemapUrls(redisConnection, sitemaps);
+                    crawlerQueueManager.enqueueUniqueSitemapUrls(redisConnection, sitemapsUrls);
                 } catch (Exception e) {
                     log.error("Failed to enqueue sitemaps in Redis: {}", e.getMessage());
                 }
             } else if (sitemapParser.isUrlSet(sitemapContent)) {
                 // Fetch Sitemap
+                return new ArrayList<>();
             }
         }
 
@@ -75,6 +80,7 @@ public class SeedContentFetcher {
 
             boolean inSitemap = false;
             boolean inLoc = false;
+            StringBuilder currentUrl = new StringBuilder();
 
             while (reader.hasNext()) {
                 int event = reader.next();
@@ -86,22 +92,26 @@ public class SeedContentFetcher {
                             inSitemap = true;
                         } else if ("loc".equals(startName)) {
                             inLoc = true;
+                            currentUrl.setLength(0);
                         }
                         break;
                     case XMLStreamConstants.CHARACTERS:
                         if (inLoc) {
-                            String url = reader.getText().trim();
-                            if (!url.isEmpty()) {
-                                sitemaps.add(url);
-                            }
+                            currentUrl.append(reader.getText());
                         }
                         break;
-                        case XMLStreamConstants.END_ELEMENT:
-                            if (inSitemap) {
-                                inSitemap = false;
-                            } else if (inLoc) {
-                                inLoc = false;
+                    case XMLStreamConstants.END_ELEMENT:
+                        String endName = reader.getLocalName();
+                        if ("sitemap".equals(endName)) {
+                            inSitemap = false;
+                        } else if ("loc".equals(endName)) {
+                            inLoc = false;
+                            String parsedUrl = currentUrl.toString().trim();
+                            if (!parsedUrl.isEmpty()) {
+                                sitemaps.add(parsedUrl);
                             }
+                            currentUrl.setLength(0);
+                        }
                         break;
                 }
             }
@@ -132,7 +142,7 @@ public class SeedContentFetcher {
                     .orElse(Collections.emptyList());
         } catch (IOException e) {
             log.error("Failed to read the YAML file: {}",e.getMessage());
-            return Collections.emptyList(); 
+            return Collections.emptyList();
         }
     }
 }
